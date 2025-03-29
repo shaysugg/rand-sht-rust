@@ -6,7 +6,7 @@ struct Urls;
 
 impl Urls {
     const GET: &str = "https://pie.dev/get";
-    const POST: &str = "https://pie.dev/posttt";
+    const POST: &str = "https://pie.dev/postsss";
 }
 
 #[derive(Debug)]
@@ -49,12 +49,12 @@ impl ErrorStatus {
 }
 
 pub async fn run_http_client() {
-    let msg = get_message_back("hello world").await;
-    match msg {
+    match get_message_back("hello world").await {
         Ok(msg) => println!("{msg}"),
         Err(err) => println!("An error accured {:?}", err),
     }
 
+    //TODO: Errors are not get handled properly
     match post_something().await {
         Ok(_) => println!("posted successfully"),
         Err(err) => println!("An error accured {:?}", err),
@@ -108,7 +108,8 @@ async fn post_something() -> Result<(), Error> {
         .post(Urls::POST)
         .json(&body)
         .send()
-        .await?
+        .await
+        .inspect(|res| println!("{:?}", res))?
         .json::<SomthingToPostResponse>()
         .await
         .map(|_| ())

@@ -1,6 +1,6 @@
 #[tokio::main]
 async fn main() {
-    rand_sht::http_client::run_http_client().await;
+    rand_sht::quick_logger::run_qulog().await;
 }
 
 // fn errorable() {

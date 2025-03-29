@@ -42,7 +42,7 @@ enum Mp3MetaDataCLiCommand {
         title: Option<String>,
 
         #[arg(long)]
-        destination: String,
+        destination: Option<String>,
 
         path: String,
     },
@@ -65,11 +65,25 @@ pub fn run_edit_metadata() {
             let pathbuf = PathBuf::from_str(&path).expect("Invalid path");
             if pathbuf.is_dir() {
                 edit_metadata_batch(
-                    &album, &artist, &coverpath, &genre, &duration, &title, &path,
+                    &album,
+                    &artist,
+                    &coverpath,
+                    &genre,
+                    &duration,
+                    &title,
+                    &destination,
+                    &path,
                 );
             } else {
                 edit_metadata(
-                    &album, &artist, &coverpath, &genre, &duration, &title, &path,
+                    &album,
+                    &artist,
+                    &coverpath,
+                    &genre,
+                    &duration,
+                    &title,
+                    &destination,
+                    &path,
                 );
             }
         }
@@ -99,6 +113,7 @@ fn edit_metadata_batch(
     genre: &Option<String>,
     duration: &Option<u32>,
     title: &Option<String>,
+    destination: &Option<String>,
     path: &String,
 ) {
     let path = PathBuf::from_str(&path).expect("Invalid path");
@@ -111,7 +126,16 @@ fn edit_metadata_batch(
         .map(|e| e.path())
         .map_while(|e| e.to_str().map(|s| s.to_string()))
         .for_each(|s| {
-            edit_metadata(album, artist, coverpath, genre, duration, title, &s);
+            edit_metadata(
+                album,
+                artist,
+                coverpath,
+                genre,
+                duration,
+                title,
+                destination,
+                &s,
+            );
         });
 }
 
@@ -122,13 +146,17 @@ fn edit_metadata(
     genre: &Option<String>,
     duration: &Option<u32>,
     title: &Option<String>,
+    destination: &Option<String>,
     path: &String,
 ) {
     let pathbuf = PathBuf::from_str(path).unwrap();
     let name = pathbuf.components().last().unwrap().as_os_str();
-    let temp_path = std::env::current_dir()
-        .expect("Current dir is not accessible")
-        .join(&name);
+
+    let temp_path = match destination {
+        Some(destination) => PathBuf::from_str(destination.as_str()).expect("Invalid path"),
+        None => std::env::current_dir().expect("Can't access to current path"),
+    }
+    .join(&name);
 
     fs::copy(&pathbuf, &temp_path).expect("Unable to copy file");
 
@@ -164,10 +192,8 @@ fn edit_metadata(
     if let Some(coverpath) = coverpath {
         match std::fs::read(&coverpath) {
             Ok(image_data) => {
-                let path = PathBuf::from_str(&coverpath).unwrap();
-                let ext = path.extension().unwrap();
-                let description = String::from("");
-                let mime_type = String::from("");
+                let description = String::new();
+                let mime_type = String::new();
                 let picture = Picture {
                     mime_type,
                     picture_type: PictureType::CoverFront,
