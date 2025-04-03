@@ -1,8 +1,12 @@
+use std::fmt::Debug;
+
 use clap::{Parser, Subcommand};
 //log struct
 
-use chrono::{DateTime, Local};
-use sqlx::{sqlite::SqlitePool, FromRow};
+use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, TimeZone};
+use sqlx::{sqlite::SqlitePool, FromRow, Sqlite};
+
+// const SQL_DATE_FORMAT_
 
 struct QuLog {
     text: String,
@@ -131,13 +135,33 @@ pub async fn run_qulog() {
             start_date,
             end_date,
         } => {
+            fn local_date_from(value: Option<String>) -> Option<DateTime<Local>> {
+                value
+                    .and_then(|s| {
+                        NaiveDateTime::parse_from_str(s.as_str(), "%Y-%m-%dT%H:%M:%S.%f").ok()
+                    })
+                    .map(|f| f.and_local_timezone(Local).unwrap())
+            }
+
             let tags = match tags {
                 Some(tags) => QuLogTags::from(tags),
                 None => QuLogTags::empty(),
             };
-            let logs = fetch_logs(&pool, Some(tags), start_date, end_date)
-                .await
-                .expect("Unable to fetch logs");
+
+            let logs = fetch_logs(
+                &pool,
+                Some(tags),
+                local_date_from(start_date),
+                local_date_from(end_date),
+            )
+            .await
+            .expect("Unable to fetch logs");
+
+            if logs.is_empty() {
+                println!("No record is found");
+                return;
+            }
+
             for log in logs {
                 println!(
                     "-> {} : {} [{}]",
@@ -196,25 +220,36 @@ async fn connect_to_db(config: &DBConfig) -> Result<SqlitePool, sqlx::Error> {
 async fn fetch_logs(
     pool: &SqlitePool,
     tags: Option<QuLogTags>,
-    start_date: Option<String>,
-    end_date: Option<String>,
+    start_date: Option<DateTime<Local>>,
+    end_date: Option<DateTime<Local>>,
 ) -> Result<Vec<QuLog>, sqlx::Error> {
     let tags = match tags {
         Some(tags) if !tags.0.is_empty() => tags.into(),
         _ => "%".to_string(),
     };
 
-    // AND (create_date >= @startDate OR @startDate IS NULL)
-    // AND (create_date <= @endDate OR @endDate IS NULL)
+    let far_future = Local.with_ymd_and_hms(3000, 01, 01, 00, 00, 00).unwrap();
+    let far_past = Local.timestamp_micros(0).unwrap();
 
-    let logs = sqlx::query_as::<_, QuLogDBO>(
+    let start_date = start_date
+        .unwrap_or(far_past)
+        .format("%Y-%m-%dT%H:%M:%S.%f")
+        .to_string();
+
+    let end_date = end_date
+        .unwrap_or(far_future)
+        .format("%Y-%m-%dT%H:%M:%S.%f")
+        .to_string();
+
+    let logs = sqlx::query_as::<Sqlite, QuLogDBO>(
         r#"
     SELECT * FROM qu_log WHERE tags LIKE ($1) 
+    AND create_date >= ($2) AND create_date <= ($3)
     "#,
     )
     .bind(tags)
-    // .bind(start_date)
-    // .bind(end_date)
+    .bind(start_date)
+    .bind(end_date)
     .fetch_all(pool)
     .await?
     .into_iter()
@@ -226,7 +261,7 @@ async fn fetch_logs(
 
 mod tests {
 
-    use chrono::Timelike;
+    use chrono::{Days, Months, Timelike};
 
     use super::*;
 
@@ -277,9 +312,53 @@ mod tests {
         let tags = vec!["hello".to_string(), "world".to_string()];
         insert(&pool, text, &create_date, tags).await.unwrap();
 
-        let all: Vec<QuLog> = fetch_all(&pool).await.unwrap().into_iter().collect();
+        let all: Vec<QuLog> = fetch_logs(&pool, None, None, None)
+            .await
+            .unwrap()
+            .into_iter()
+            .collect();
         assert_eq!(all.len(), 1);
         assert_eq!(all.first().unwrap().text, text);
+    }
+
+    #[tokio::test]
+    async fn test_qulog_read_filter_date() {
+        let pool = in_memory_pool().await.unwrap();
+
+        async fn insert_sample_with_date(date: &DateTime<Local>, pool: &SqlitePool) {
+            let text = "Hello world";
+            let tags = Vec::new();
+            insert(pool, text, &date, tags).await.unwrap();
+        }
+
+        let base = Local::now();
+        insert_sample_with_date(&base.checked_add_days(Days::new(1)).unwrap(), &pool).await;
+        insert_sample_with_date(&base.checked_add_days(Days::new(2)).unwrap(), &pool).await;
+        insert_sample_with_date(&base.checked_add_days(Days::new(3)).unwrap(), &pool).await;
+
+        insert_sample_with_date(&base.checked_add_months(Months::new(2)).unwrap(), &pool).await;
+        insert_sample_with_date(&base.checked_add_months(Months::new(3)).unwrap(), &pool).await;
+
+        insert_sample_with_date(&base.checked_add_months(Months::new(24)).unwrap(), &pool).await;
+
+        let all: Vec<QuLog> = fetch_logs(&pool, None, None, None)
+            .await
+            .unwrap()
+            .into_iter()
+            .collect();
+        assert_eq!(all.len(), 6);
+
+        let this_month: Vec<QuLog> = fetch_logs(
+            &pool,
+            None,
+            Some(base),
+            Some(base.checked_add_months(Months::new(1)).unwrap()),
+        )
+        .await
+        .unwrap()
+        .into_iter()
+        .collect();
+        assert_eq!(this_month.len(), 3);
     }
 
     async fn in_memory_pool() -> Result<SqlitePool, sqlx::Error> {
@@ -304,10 +383,6 @@ mod tests {
         };
 
         create_log(&model, &pool).await
-    }
-
-    async fn fetch_all(pool: &SqlitePool) -> Result<Vec<QuLog>, sqlx::Error> {
-        fetch_logs(&pool, None, None, None).await
     }
 
     // #[test]
