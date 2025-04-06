@@ -11,5 +11,3 @@
     logs will be persisted in a sql file
     logs can be queried and searched (tags, from_date, end_date)
     logs can be deleted completly or partially (tags, from_date, end_date)
-
-    

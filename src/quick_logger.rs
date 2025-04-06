@@ -1,9 +1,9 @@
 use std::fmt::Debug;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 //log struct
 
-use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, TimeZone};
+use chrono::{DateTime, Datelike, Days, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone};
 use sqlx::{sqlite::SqlitePool, FromRow, Sqlite};
 
 // const SQL_DATE_FORMAT_
@@ -71,17 +71,16 @@ impl Into<QuLog> for QuLogDBO {
     }
 }
 
-//create log from cli
 #[derive(Debug, Parser)]
 #[command(name = "qulog")]
 struct LogCreateCli {
     #[command(subcommand)]
-    command: LogCreateCommand,
+    command: QuLogCommand,
 }
 
 #[derive(Debug, Subcommand)]
-enum LogCreateCommand {
-    Create {
+enum QuLogCommand {
+    Log {
         text: String,
         #[arg(long, short)]
         tags: Option<String>,
@@ -94,7 +93,119 @@ enum LogCreateCommand {
         start_date: Option<String>,
         #[arg(long, short)]
         end_date: Option<String>,
+        #[arg(value_enum)]
+        date_range: Option<QuLogCommandDateRange>,
     },
+
+    Export {
+        #[arg(long)]
+        tags: Option<String>,
+        #[arg(long, short)]
+        start_date: Option<String>,
+        #[arg(long, short)]
+        end_date: Option<String>,
+        #[arg(value_enum)]
+        date_range: Option<QuLogCommandDateRange>,
+    },
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, ValueEnum)]
+enum QuLogCommandDateRange {
+    Today,
+    ThisWeek,
+    ThisMonth,
+    ThisYear,
+}
+
+impl QuLogCommandDateRange {
+    fn date_times(&self) -> (DateTime<Local>, DateTime<Local>) {
+        match self {
+            QuLogCommandDateRange::Today => (
+                Local::now().with_time(NaiveTime::MIN).unwrap(),
+                Local::now()
+                    .checked_add_days(Days::new(1))
+                    .unwrap()
+                    .with_time(NaiveTime::MIN)
+                    .unwrap(),
+            ),
+            QuLogCommandDateRange::ThisWeek => {
+                let days_since = Local::now().weekday().days_since(chrono::Weekday::Mon);
+                let start_of_week = Local::now()
+                    .checked_sub_days(chrono::Days::new((days_since - 1) as u64))
+                    .unwrap()
+                    .with_time(NaiveTime::MIN)
+                    .unwrap();
+
+                (start_of_week, Local::now())
+            }
+            QuLogCommandDateRange::ThisMonth => {
+                let days_since = Local::now().day();
+                let start_of_month = Local::now()
+                    .checked_sub_days(chrono::Days::new((days_since - 1) as u64))
+                    .unwrap()
+                    .with_time(NaiveTime::MIN)
+                    .unwrap();
+                (start_of_month, Local::now())
+            }
+            QuLogCommandDateRange::ThisYear => {
+                let current_year = Local::now().year();
+                let start_of_year = NaiveDate::from_ymd_opt(current_year - 1, 1, 1)
+                    .unwrap()
+                    .and_time(NaiveTime::MIN)
+                    .and_local_timezone(Local)
+                    .unwrap();
+
+                (start_of_year, Local::now())
+            }
+        }
+    }
+}
+
+struct QuLogCommandParser {
+    start_date: Option<DateTime<Local>>,
+    end_date: Option<DateTime<Local>>,
+    tags: QuLogTags,
+}
+
+impl QuLogCommandParser {
+    fn parse(
+        tags: Option<String>,
+        start_date: Option<String>,
+        end_date: Option<String>,
+        date_range: Option<QuLogCommandDateRange>,
+    ) -> Self {
+        fn parse_local_date_from(value: Option<String>) -> Option<DateTime<Local>> {
+            value
+                .and_then(|s| NaiveDateTime::parse_from_str(s.as_str(), "%Y-%m-%d %H:%M:%S").ok())
+                .map(|f| f.and_local_timezone(Local).unwrap())
+        }
+
+        if date_range.is_some() && (start_date.is_some() || end_date.is_some()) {
+            panic!("Date filtering can be done by date_range or start_date and end_date.")
+        }
+
+        let range: (Option<DateTime<Local>>, Option<DateTime<Local>>) = match date_range {
+            Some(date_range) => {
+                let range = date_range.date_times();
+                (Some(range.0), Some(range.1))
+            }
+            None => (
+                parse_local_date_from(start_date),
+                parse_local_date_from(end_date),
+            ),
+        };
+
+        let tags = match tags {
+            Some(tags) => QuLogTags::from(tags),
+            None => QuLogTags::empty(),
+        };
+
+        QuLogCommandParser {
+            start_date: range.0,
+            end_date: range.1,
+            tags,
+        }
+    }
 }
 
 pub async fn run_qulog() {
@@ -111,7 +222,7 @@ pub async fn run_qulog() {
         .expect("Unable to create log data base");
 
     match args.command {
-        LogCreateCommand::Create { text, tags } => {
+        QuLogCommand::Log { text, tags } => {
             let tags: QuLogTags = match tags {
                 Some(tags) => QuLogTags::from(tags),
 
@@ -130,29 +241,19 @@ pub async fn run_qulog() {
             }
         }
 
-        LogCreateCommand::Show {
+        QuLogCommand::Show {
             tags,
             start_date,
             end_date,
+            date_range,
         } => {
-            fn local_date_from(value: Option<String>) -> Option<DateTime<Local>> {
-                value
-                    .and_then(|s| {
-                        NaiveDateTime::parse_from_str(s.as_str(), "%Y-%m-%dT%H:%M:%S.%f").ok()
-                    })
-                    .map(|f| f.and_local_timezone(Local).unwrap())
-            }
-
-            let tags = match tags {
-                Some(tags) => QuLogTags::from(tags),
-                None => QuLogTags::empty(),
-            };
+            let parameters = QuLogCommandParser::parse(tags, start_date, end_date, date_range);
 
             let logs = fetch_logs(
                 &pool,
-                Some(tags),
-                local_date_from(start_date),
-                local_date_from(end_date),
+                Some(parameters.tags),
+                parameters.start_date,
+                parameters.end_date,
             )
             .await
             .expect("Unable to fetch logs");
@@ -165,11 +266,50 @@ pub async fn run_qulog() {
             for log in logs {
                 println!(
                     "-> {} : {} [{}]",
-                    log.create_date.format("%d-%m-%Y %H:%M:%S"),
+                    log.create_date.format("%Y-%m-%d %H:%M:%S"),
                     log.text,
                     log.tags.0.join("-")
                 );
             }
+        }
+
+        QuLogCommand::Export {
+            tags,
+            start_date,
+            end_date,
+            date_range,
+        } => {
+            let parameters = QuLogCommandParser::parse(tags, start_date, end_date, date_range);
+
+            let logs = fetch_logs(
+                &pool,
+                Some(parameters.tags),
+                parameters.start_date,
+                parameters.end_date,
+            )
+            .await
+            .expect("Unable to fetch logs");
+
+            if logs.is_empty() {
+                println!("No record is found");
+                return;
+            }
+
+            let mut base = String::from("<table><tr><th>Date</th><th>Log</th><th>Tags</th></tr>");
+
+            for log in logs {
+                let row = format!(
+                    "<tr><td>{date}</td><td>{log}</td><td>{tags}</td>",
+                    date = log.create_date.format("%Y-%m-%d %H:%M:%S"),
+                    log = log.text,
+                    tags = log.tags.0.join("-")
+                );
+                base.push_str(row.as_str());
+            }
+
+            base.push_str("</table>");
+
+            std::fs::write("export.html", base);
         }
     }
 }
@@ -233,12 +373,12 @@ async fn fetch_logs(
 
     let start_date = start_date
         .unwrap_or(far_past)
-        .format("%Y-%m-%dT%H:%M:%S.%f")
+        .format("%Y-%m-%dT%H:%M:%S")
         .to_string();
 
     let end_date = end_date
         .unwrap_or(far_future)
-        .format("%Y-%m-%dT%H:%M:%S.%f")
+        .format("%Y-%m-%dT%H:%M:%S")
         .to_string();
 
     let logs = sqlx::query_as::<Sqlite, QuLogDBO>(
@@ -384,14 +524,6 @@ mod tests {
 
         create_log(&model, &pool).await
     }
-
-    // #[test]
-    // fn test_ch_dates() {
-    //     let date = Local::now();
-    //     let str = date.format("%Y-%m-%d %H:%M:%S").to_string();
-    //     print!("%%%%%%%  {str}");
-    //     let d = NaiveDateTime::parse_from_str(&str, "%Y-%m-%d %H:%M:%S").expect("Unable to parse");
-    // }
 }
 
 //persist with sql
