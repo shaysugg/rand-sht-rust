@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, path::Path};
 
 use clap::{Parser, Subcommand, ValueEnum};
 //log struct
@@ -106,6 +106,8 @@ enum QuLogCommand {
         end_date: Option<String>,
         #[arg(value_enum)]
         date_range: Option<QuLogCommandDateRange>,
+        #[arg(long)]
+        to: Option<String>,
     },
 }
 
@@ -131,7 +133,7 @@ impl QuLogCommandDateRange {
             QuLogCommandDateRange::ThisWeek => {
                 let days_since = Local::now().weekday().days_since(chrono::Weekday::Mon);
                 let start_of_week = Local::now()
-                    .checked_sub_days(chrono::Days::new((days_since - 1) as u64))
+                    .checked_sub_days(chrono::Days::new(days_since as u64))
                     .unwrap()
                     .with_time(NaiveTime::MIN)
                     .unwrap();
@@ -141,7 +143,7 @@ impl QuLogCommandDateRange {
             QuLogCommandDateRange::ThisMonth => {
                 let days_since = Local::now().day();
                 let start_of_month = Local::now()
-                    .checked_sub_days(chrono::Days::new((days_since - 1) as u64))
+                    .checked_sub_days(chrono::Days::new(days_since as u64))
                     .unwrap()
                     .with_time(NaiveTime::MIN)
                     .unwrap();
@@ -278,6 +280,7 @@ pub async fn run_qulog() {
             start_date,
             end_date,
             date_range,
+            to,
         } => {
             let parameters = QuLogCommandParser::parse(tags, start_date, end_date, date_range);
 
@@ -295,7 +298,16 @@ pub async fn run_qulog() {
                 return;
             }
 
-            let mut base = String::from("<table><tr><th>Date</th><th>Log</th><th>Tags</th></tr>");
+            let style =
+                std::fs::read_to_string("resources/table-css.css").unwrap_or("".to_string());
+
+            let mut table = String::from(
+                r#"<table><tr>
+                <th style="width:20%">Date</th>
+                <th style="width:60%">Log</th>
+                <th style="width:20%">Tags</th>
+                </tr>"#,
+            );
 
             for log in logs {
                 let row = format!(
@@ -304,12 +316,38 @@ pub async fn run_qulog() {
                     log = log.text,
                     tags = log.tags.0.join("-")
                 );
-                base.push_str(row.as_str());
+                table.push_str(row.as_str());
             }
 
-            base.push_str("</table>");
+            table.push_str("</table>");
 
-            std::fs::write("export.html", base);
+            let html = format!(
+                "<html><head><style>{style}</style></head><body>{table}</body></html>",
+                style = style,
+                table = table
+            );
+
+            let export_path = match to {
+                Some(to) => {
+                    if Path::new(&to).is_dir() {
+                        to
+                    } else {
+                        panic!("Invalid export path")
+                    }
+                }
+                None => {
+                    let path = "./exports";
+                    if !Path::new(path).is_dir() {
+                        std::fs::create_dir(path).expect("Unable to create export path");
+                    }
+                    path.to_string()
+                }
+            };
+
+            let filename = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+            let file = format!("{}/{}.html", export_path, filename);
+
+            std::fs::write(file, html).expect("Unable to write export file");
         }
     }
 }
@@ -525,7 +563,3 @@ mod tests {
         create_log(&model, &pool).await
     }
 }
-
-//persist with sql
-//read with sql (list, single, filtered)
-//delete with sql
