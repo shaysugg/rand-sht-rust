@@ -1,14 +1,14 @@
 # Random stuff with rust
-Some random projects I've developed to learn rust.
-I tried to keep each project in one file, small but functional.
-Obviously I'm new to rust and these are not written with the best possible rust codes.
+* Some random projects I've developed to learn rust.
+* I tried to keep each project in one file, small but functional.
+* Obviously I'm new to rust and these are not written with the best possible rust codes.
 
 List of stuff that are here:
 * [tic-tac-toe game](#tic-tac-toe-game).
 * mp3 tag editor.
-* some networking (this is wip still).
-* some data structures .
-    Somehow I implemented something like link list, but not sure if it's the best implementation.
+* Networking (this is wip still).
+* Some data structures.
+    Somehow I implemented something like linked-list, but not sure if it's the best implementation.
 * [Qulog](#qulog) A quick log persister with sqlite.
 
 ## Notable stuff so far ...
@@ -78,8 +78,8 @@ Example of output:
 ```
 
 #### Export Logs
-It's possible to export logs in HTML table format.
-`resources/table-css.css` can also be edited to have a custom css for table.
+It's possible to export logs in a HTML table format.
+`resources/table-css.css` can also be edited to have custom css for the table.
 ```
 Usage: rand_sht export [OPTIONS] [DATE_RANGE]
 
