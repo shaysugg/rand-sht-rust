@@ -3,11 +3,11 @@ Some random projects I've developed to learn rust.
 I tried to keep each project in one file, small but functional.
 Obviously I'm new to rust and these are not written with the best possible rust codes.
 
-List of stuff that are here
-* [tic-tac-toe game](#tic-tac-toe-game)
-* mp3 tag edito
-* some networking (this is wip still)
-* some data structures 
+List of stuff that are here:
+* [tic-tac-toe game](#tic-tac-toe-game).
+* mp3 tag editor.
+* some networking (this is wip still).
+* some data structures .
     Somehow I implemented something like link list, but not sure if it's the best implementation.
 * [Qulog](#qulog) A quick log persister with sqlite.
 
@@ -97,4 +97,4 @@ Example:
 ```
 cargo run export --to ~/Desktop this-month
 ```
-[Qulog Example](qulog-table-example.png)
+![Qulog Example](qulog-table-example.png)
