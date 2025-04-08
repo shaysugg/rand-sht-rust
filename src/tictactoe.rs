@@ -103,7 +103,7 @@ impl PartialEq for GameCommandMark {
 
 pub fn run_tictactoe() {
     let mut table = new_table();
-    let mut game_state = GameState::Playing;
+    let mut game_state = GameState::New;
     let mut player_mark = GameCommandMark::X;
 
     while game_state != GameState::Terminated {
@@ -152,7 +152,14 @@ pub fn run_tictactoe() {
                 }
             }
             GameState::New => {
-                println!("New game");
+                println!("*** NEW GAME ***");
+                println!(
+                    r#"
+Enter a mark,
+for quiting enter quit,
+for restarting enter restart.
+                "#
+                );
                 table = new_table();
                 game_state = GameState::Playing
             }
@@ -161,13 +168,13 @@ pub fn run_tictactoe() {
                     Some(winner) => {
                         println!("----------------------------");
                         println!(
-                            ">>> Player {} won the game <<<",
+                            ">>> PLAYER {} WON THE GAME! <<<",
                             winner.to_char().to_string()
                         );
                         game_state = GameState::New;
                         println!("----------------------------");
                     }
-                    None => println!(">>> Nobody won the game <<<"),
+                    None => println!(">>> Nobody wins :O <<<"),
                 };
             }
             GameState::Terminated => return,
@@ -187,7 +194,7 @@ fn display_tictactoe(table: &Table) {
 
 fn read_input(player_mark: &GameCommandMark) -> String {
     println!(
-        "Player {} Enter the input! xy",
+        "Player {} Enter the input! (format: xy, like: 21)",
         player_mark.to_char().to_string()
     );
     let mut input = String::new();

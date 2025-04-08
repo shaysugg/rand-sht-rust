@@ -48,7 +48,7 @@ enum Mp3MetaDataCLiCommand {
     },
 }
 
-pub fn run_edit_metadata() {
+pub fn run_metadata_editor() {
     let args = Mp3MetaDataCli::parse();
     match args.command {
         Mp3MetaDataCLiCommand::Show { path } => show_metadata(path),
